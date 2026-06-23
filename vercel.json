@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/meta.js": { "maxDuration": 15 },
+    "api/meta-creatives.js": { "maxDuration": 15 },
+    "api/graph.js": { "maxDuration": 15 },
+    "api/leads.js": { "maxDuration": 20 },
+    "api/instagram.js": { "maxDuration": 15 },
+    "api/facebook.js": { "maxDuration": 15 },
+    "api/linkedin.js": { "maxDuration": 20 },
+    "api/jira.js": { "maxDuration": 15 },
+    "api/sheets.js": { "maxDuration": 15 },
+    "api/analytics.js": { "maxDuration": 15 },
+    "api/chat.js": { "maxDuration": 30 }
+  },
+  "rewrites": [
+    { "source": "/((?!api/).*)", "destination": "/public/index.html" }
+  ]
+}
