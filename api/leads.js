@@ -38,29 +38,44 @@ function parseCSV(text) {
   if (rows.length && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0] === '') rows.pop();
   return rows;
 }
-function findCol(H, aliases) {
-  for (const a of aliases) { const i = H.indexOf(a); if (i >= 0) return i; }
-  for (let i = 0; i < H.length; i++) { if (aliases.some((a) => H[i].includes(a))) return i; }
+function findCol(H, aliases, exclude) {
+  const ex = exclude || new Set();
+  // 1) exact header match (best signal), skipping already-claimed columns
+  for (const a of aliases) { const i = H.indexOf(a); if (i >= 0 && !ex.has(i)) return i; }
+  // 2) fall back to substring match
+  for (let i = 0; i < H.length; i++) { if (ex.has(i)) continue; if (aliases.some((a) => H[i].includes(a))) return i; }
   return -1;
 }
-// Turn a 2D sheet (row 0 = headers) into lead records. Every column becomes a field; the date and
-// campaign columns are recognized for the "Received" + "Campaign" columns and aren't duplicated.
+// Columns in Meta's native lead CSV export that are internal IDs / plumbing — hidden from the
+// per-lead detail fields (campaign + date are surfaced as their own columns instead).
+const META_NOISE = ['id', 'ad id', 'ad name', 'adset id', 'adset name', 'campaign id', 'form id', 'form name', 'is organic', 'platform', 'lead status'];
+// Turn a 2D sheet (row 0 = headers) into lead records. Handles both clean human headers and Meta's raw
+// export headers (full_name, phone_number, campaign_name…). The date + campaign columns are surfaced as
+// the "Received"/"Campaign" columns; every other meaningful column becomes a detail field.
 function leadsFromValues(values) {
   if (!Array.isArray(values) || values.length < 2) return [];
   const headers = (values[0] || []).map((h) => norm(h));
-  const H = headers.map((h) => h.toLowerCase());
-  const dateCol = findCol(H, ['date of lead capture', 'date', 'created', 'timestamp', 'captured', 'received']);
-  const nameCol = findCol(H, ['full name', 'name']);
-  const emailCol = findCol(H, ['email', 'e-mail']);
-  const phoneCol = findCol(H, ['contact', 'phone', 'mobile', 'number']);
-  const campCol = findCol(H, ['campaign']);
+  // Normalize for matching: lowercase, treat underscores as spaces (Meta uses full_name, phone_number…).
+  const H = headers.map((h) => h.toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ').trim());
+  // Claim the campaign column first so 'campaign name' can't be mistaken for the lead's name.
+  const campCol = findCol(H, ['campaign name', 'campaign']);
+  const skip = new Set([campCol].filter((i) => i >= 0));
+  const dateCol = findCol(H, ['date of lead capture', 'created time', 'created', 'date', 'timestamp', 'captured', 'received'], skip);
+  if (dateCol >= 0) skip.add(dateCol);
+  const nameCol = findCol(H, ['full name', 'your name', 'name'], skip);
+  const emailCol = findCol(H, ['email', 'e mail'], skip);
+  const phoneCol = findCol(H, ['contact', 'phone number', 'phone', 'mobile', 'number'], skip);
   const out = [];
   for (let r = 1; r < values.length; r++) {
     const row = values[r] || [];
     if (!row.some((c) => norm(c))) continue;
     const at = (i) => (i >= 0 && i < row.length) ? norm(row[i]) : '';
     const fields = [];
-    headers.forEach((h, i) => { if (i === dateCol || i === campCol || !h) return; fields.push({ key: h, label: h, value: at(i) }); });
+    headers.forEach((h, i) => {
+      if (i === dateCol || i === campCol || !h) return;
+      if (META_NOISE.indexOf(H[i]) >= 0) return;      // drop Meta's internal id/plumbing columns
+      fields.push({ key: h, label: prettyKey(h), value: at(i) });
+    });
     out.push({ id: 'csv-' + r, name: at(nameCol), email: at(emailCol), phone: at(phoneCol), city: '', campaign: at(campCol), form: '', createdTime: at(dateCol), fields });
   }
   out.sort((a, b) => (new Date(b.createdTime) - new Date(a.createdTime)) || 0);
@@ -157,7 +172,7 @@ module.exports = async function handler(req, res) {
         values = j.values || [];
       }
       const leads = leadsFromValues(values);
-      res.status(200).json({ configured: true, available: true, source: 'sheet', fetchedAt: new Date().toISOString(), count: leads.length, leads: leads.slice(0, 1000), forms: [] });
+      res.status(200).json({ configured: true, available: true, source: 'sheet', fetchedAt: new Date().toISOString(), count: leads.length, leads: leads.slice(0, 5000), forms: [] });
       return;
     } catch (e) { res.status(200).json({ configured: true, available: false, source: 'sheet', reason: String(e && e.message ? e.message : e), leads: [], forms: [] }); return; }
   }

@@ -12,3 +12,6 @@ node_modules/
 # OS / editor cruft
 .DS_Store
 Thumbs.db
+
+# Local Claude Code settings (machine-specific; may contain command history)
+.claude/settings.local.json
